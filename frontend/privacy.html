@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy — Tradeski</title>
+    <meta name="description" content="How Tradeski collects, uses, and protects your data.">
+    <meta name="robots" content="index, follow">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:      #07090D;
+            --card:    #0C0F16;
+            --border:  rgba(255, 255, 255, 0.08);
+            --text:    #D1D5DB;
+            --muted:   #6B7280;
+            --accent:  #60A5FA;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "Space Grotesk", system-ui, sans-serif;
+            line-height: 1.7;
+            font-size: 15px;
+        }
+        .wrap { max-width: 760px; margin: 0 auto; padding: 48px 24px 96px; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .brand {
+            display: inline-flex; align-items: center; gap: 10px;
+            font-weight: 700; letter-spacing: 0.04em; font-size: 18px;
+            color: #fff; text-decoration: none; margin-bottom: 40px;
+        }
+        .brand svg { width: 26px; height: 26px; }
+        h1 { font-size: 30px; color: #fff; margin: 0 0 6px; }
+        h2 { font-size: 19px; color: #fff; margin: 40px 0 10px; }
+        .updated { color: var(--muted); font-size: 13px; font-family: "JetBrains Mono", monospace; margin-bottom: 32px; }
+        .lead { color: var(--text); font-size: 16px; }
+        ul { padding-left: 20px; }
+        li { margin: 6px 0; }
+        table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+        th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+        th { color: #fff; font-weight: 600; }
+        .callout {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 10px; padding: 16px 18px; margin: 20px 0;
+            color: var(--muted); font-size: 13.5px;
+        }
+        .callout strong { color: var(--text); }
+        footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <a class="brand" href="/">
+            <svg viewBox="0 0 32 32" aria-hidden="true">
+                <defs><linearGradient id="tk" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="0" stop-color="#1E40AF"/><stop offset="1" stop-color="#60A5FA"/>
+                </linearGradient></defs>
+                <path d="M2 27 L11 11 L16 19 L22 6 L30 27 Z" fill="url(#tk)"/>
+            </svg>
+            TRADESKI
+        </a>
+
+        <h1>Privacy Policy</h1>
+        <p class="updated">Last updated: July 2, 2026</p>
+
+        <p class="lead">
+            Tradeski ("we", "us") is an educational, real-time market analytics platform.
+            This policy explains what data we collect, why, and the choices you have.
+            We aim to collect as little as possible and never sell your data.
+        </p>
+
+        <div class="callout">
+            <strong>Not financial advice.</strong> Tradeski is provided for educational and
+            informational purposes only. Nothing on the platform — including responses from the
+            "Ski" assistant — is investment, financial, legal, or tax advice, or a recommendation
+            to buy or sell any security. You are solely responsible for your own decisions.
+        </div>
+
+        <h2>1. Information We Collect</h2>
+        <table>
+            <thead><tr><th>Data</th><th>Why we collect it</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td>Email address</td>
+                    <td>To create and identify your account and let you sign in.</td>
+                </tr>
+                <tr>
+                    <td>Password</td>
+                    <td>Stored only as a salted one-way hash (PBKDF2). We never store or can read your plaintext password.</td>
+                </tr>
+                <tr>
+                    <td>Portfolio holdings, alerts, and watchlist</td>
+                    <td>The content you create in the app, saved so it persists across sessions and devices. These are self-reported paper entries, not linked to any brokerage.</td>
+                </tr>
+                <tr>
+                    <td>IP address</td>
+                    <td>Used transiently for rate limiting and abuse prevention. We do not build advertising profiles from it.</td>
+                </tr>
+                <tr>
+                    <td>Messages you send to Ski</td>
+                    <td>Processed to generate a response (see "Third-Party Services"). We do not use your messages to train models.</td>
+                </tr>
+                <tr>
+                    <td>Basic, aggregate usage analytics</td>
+                    <td>Privacy-friendly page analytics (via Vercel Analytics) to understand traffic. No cross-site tracking cookies.</td>
+                </tr>
+            </tbody>
+        </table>
+        <p>
+            We do <strong>not</strong> collect real brokerage credentials, bank information,
+            government IDs, or payment details. Tradeski is a paper-trading and analytics tool.
+        </p>
+
+        <h2>2. How We Use Your Information</h2>
+        <ul>
+            <li>To provide, maintain, and secure the service and your account.</li>
+            <li>To save and display your portfolio, alerts, and watchlist.</li>
+            <li>To ground Ski's answers in the data you are viewing (your holdings and current market context).</li>
+            <li>To prevent abuse, debug problems, and improve the product.</li>
+        </ul>
+        <p>We do not sell, rent, or trade your personal information.</p>
+
+        <h2>3. Third-Party Services</h2>
+        <p>To operate, Tradeski shares limited data with these processors:</p>
+        <table>
+            <thead><tr><th>Provider</th><th>Purpose</th><th>What it receives</th></tr></thead>
+            <tbody>
+                <tr><td>Anthropic (Claude)</td><td>Powers the Ski assistant</td><td>Your chat message plus market context; your email is not sent</td></tr>
+                <tr><td>Render</td><td>Backend hosting &amp; database</td><td>All stored account data</td></tr>
+                <tr><td>Vercel</td><td>Frontend hosting &amp; analytics</td><td>Request metadata, aggregate analytics</td></tr>
+                <tr><td>FRED (St. Louis Fed), NewsAPI, Yahoo Finance</td><td>Market, macro &amp; news data</td><td>Only the ticker symbols being viewed — no personal data</td></tr>
+            </tbody>
+        </table>
+        <p>Each provider processes data under its own privacy policy. We share only what is needed for the feature to work.</p>
+
+        <h2>4. Data Storage &amp; Security</h2>
+        <ul>
+            <li>Passwords are hashed with a salted, one-way algorithm and are never stored in plaintext.</li>
+            <li>Traffic is served over HTTPS/TLS. Authentication uses signed, expiring tokens.</li>
+            <li>API access is rate-limited to reduce abuse.</li>
+        </ul>
+        <p>No system is perfectly secure. Please use a unique password you don't reuse elsewhere.</p>
+
+        <h2>5. Data Retention</h2>
+        <p>
+            We keep your account data until you delete it or request deletion. Price history is
+            automatically pruned on a rolling basis. Transient data such as IP addresses used for
+            rate limiting is retained only briefly.
+        </p>
+
+        <h2>6. Your Rights &amp; Choices</h2>
+        <ul>
+            <li><strong>Access &amp; portability:</strong> you can view your holdings, alerts, and watchlist in the app at any time.</li>
+            <li><strong>Deletion:</strong> you can remove individual holdings, alerts, and watchlist items yourself. To delete your entire account and associated data, contact us at the address below.</li>
+            <li><strong>Correction:</strong> update your entries directly in the app.</li>
+        </ul>
+        <p>Depending on where you live (e.g., the EEA/UK or California), you may have additional rights under laws such as GDPR or the CCPA. We honor eligible requests.</p>
+
+        <h2>7. Children's Privacy</h2>
+        <p>Tradeski is not directed to children under 13, and we do not knowingly collect their data. If you believe a child has provided us data, contact us and we will delete it.</p>
+
+        <h2>8. International Users</h2>
+        <p>Tradeski is operated from the United States and data is processed there. By using the service you consent to this transfer.</p>
+
+        <h2>9. Changes to This Policy</h2>
+        <p>We may update this policy as the product evolves. Material changes will be reflected by updating the "Last updated" date above.</p>
+
+        <h2>10. Contact</h2>
+        <p>
+            Questions or requests (including account deletion): <a href="mailto:privacy@tradeski.dev">privacy@tradeski.dev</a>.
+            Tradeski is an independent educational project operated by its author.
+        </p>
+
+        <footer>
+            <a href="/">← Back to Tradeski</a> · Tradeski is an educational tool, not investment advice.
+        </footer>
+    </div>
+</body>
+</html>

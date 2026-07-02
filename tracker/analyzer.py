@@ -42,10 +42,9 @@ def rsi(values: List[float], period: int = 14) -> List[Optional[float]]:
 
     up = seed[seed > 0].sum() / period
     down = -seed[seed < 0].sum() / period
-    rs = up / down if down != 0 else 0.0
 
     result: List[Optional[float]] = [None] * period
-    result.append(100 - (100 / (1 + rs)))
+    result.append(_rsi_value(up, down))
 
     for delta in deltas[period:]:
         up_val = max(delta, 0)
@@ -54,10 +53,23 @@ def rsi(values: List[float], period: int = 14) -> List[Optional[float]]:
         up = (up * (period - 1) + up_val) / period
         down = (down * (period - 1) + down_val) / period
 
-        rs = up / down if down != 0 else 0.0
-        result.append(100 - (100 / (1 + rs)))
+        result.append(_rsi_value(up, down))
 
     return result
+
+
+def _rsi_value(up: float, down: float) -> float:
+    """Convert average gain/loss into an RSI reading in [0, 100].
+
+    When the average loss is zero the relative strength diverges to
+    infinity, so RSI is 100 (max overbought) if there were any gains, or a
+    neutral 50 for a perfectly flat window. The naive ``rs = 0`` shortcut
+    inverts this and returns 0, so it is handled explicitly here.
+    """
+    if down == 0:
+        return 100.0 if up > 0 else 50.0
+    rs = up / down
+    return 100 - (100 / (1 + rs))
 
 
 def bollinger_bands(
@@ -230,8 +242,19 @@ def linear_regression_prediction(values: List[float]) -> Optional[float]:
     return float(slope * len(values) + intercept)
 
 
-def analyze_series(data: List[Tuple[str, float]]) -> dict:
-    """Return latest indicator values for a (timestamp, price) series."""
+def analyze_series(
+    data: List[Tuple[str, float]],
+    highs: Optional[List[float]] = None,
+    lows: Optional[List[float]] = None,
+) -> dict:
+    """Return latest indicator values for a (timestamp, price) series.
+
+    The Stochastic Oscillator is defined on intraday highs and lows. When
+    only a close-price series is available (the real-time tracker stores
+    closes), ``highs``/``lows`` are omitted and ``stoch_k``/``stoch_d`` are
+    returned as ``None`` rather than fabricated from the close price — feeding
+    the close in as both high and low produces a degenerate, incorrect value.
+    """
     if not data:
         return {}
 
@@ -244,7 +267,13 @@ def analyze_series(data: List[Tuple[str, float]]) -> dict:
     vol_vals = volatility(prices, 20)
     z_vals = zscore(prices, 20)
     prediction = linear_regression_prediction(prices)
-    k_vals, d_vals = stochastic(prices, prices, prices)
+
+    stoch_k: Optional[float] = None
+    stoch_d: Optional[float] = None
+    if highs is not None and lows is not None and len(highs) == len(lows) == len(prices):
+        k_vals, d_vals = stochastic(highs, lows, prices)
+        stoch_k = k_vals[-1]
+        stoch_d = d_vals[-1]
 
     return {
         "sma20": sma20_vals[-1],
@@ -254,6 +283,6 @@ def analyze_series(data: List[Tuple[str, float]]) -> dict:
         "vol20": vol_vals[-1],
         "z_score": z_vals[-1],
         "prediction_next": prediction,
-        "stoch_k": k_vals[-1],
-        "stoch_d": d_vals[-1],
+        "stoch_k": stoch_k,
+        "stoch_d": stoch_d,
     }

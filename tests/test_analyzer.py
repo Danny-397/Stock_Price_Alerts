@@ -28,11 +28,16 @@ def test_ema_basic():
 
 
 def test_rsi_length_and_range():
-    values = list(range(1, 40))
+    # Mixed up/down moves so RSI lands strictly inside (0, 100).
+    values = [1.0, 2.0, 1.5, 3.0, 2.5, 4.0, 3.5, 5.0, 4.0, 6.0,
+              5.5, 7.0, 6.0, 8.0, 7.0, 9.0, 8.0, 10.0, 9.0, 11.0]
     result = rsi(values, 14)
     assert len(result) == len(values)
     numeric = [v for v in result if v is not None]
+    assert numeric
     assert all(0 <= v <= 100 for v in numeric)
+    # A series with both gains and losses must not pin to an extreme.
+    assert all(0 < v < 100 for v in numeric)
 
 
 def test_bollinger_bands_shapes():

@@ -9,7 +9,7 @@ Live charts · Federal Reserve macro data · AI-powered assistant · Portfolio r
 [![CI](https://github.com/Danny-397/Tradeski/actions/workflows/ci.yml/badge.svg)](https://github.com/Danny-397/Tradeski/actions/workflows/ci.yml)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-45%20passing-22c55e.svg)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-70%20passing-22c55e.svg)](#running-tests)
 [![Deploy: Render](https://img.shields.io/badge/backend-Render-46E3B7?logo=render&logoColor=white)](https://render.com)
 [![Deploy: Vercel](https://img.shields.io/badge/frontend-Vercel-000000?logo=vercel&logoColor=white)](https://vercel.com)
 
@@ -21,14 +21,14 @@ Live charts · Federal Reserve macro data · AI-powered assistant · Portfolio r
 
 Tradeski integrates five distinct data pipelines — live equity prices, Federal Reserve macroeconomic data, financial news with sentiment scoring, a fundamental stock screener, and an AI assistant grounded in real-time context — into a single coherent interface, with quantitative portfolio analytics and a 90-day correlation heatmap layered on top.
 
-Every quantitative indicator is implemented from first principles without TA-Lib or pandas. The AI assistant (Ski) receives live macro, portfolio, and news data on every request — not generic training knowledge. The backend is a persistent WebSocket server deployed on Render; the frontend is a static site on Vercel.
+Every quantitative indicator is hand-written directly on NumPy arrays — no TA-Lib, no pandas — so the indicator logic itself (Wilder smoothing, MACD divergence, band math) is the project's own code, with NumPy supplying only primitive operations like mean, standard deviation, and least-squares. The AI assistant (Ski) receives live macro, portfolio, and news data on every request — not generic training knowledge. The backend is a persistent WebSocket server deployed on Render; the frontend is a static site on Vercel.
 
 | | |
 |---|---|
 | **Backend** | Python 3.12 · Flask · Flask-SocketIO · gevent |
 | **Frontend** | Vanilla JS · Plotly.js · Socket.IO |
 | **Data** | yfinance · FRED API · NewsAPI · Anthropic Claude |
-| **Tests** | 45 tests across 9 files — CI on every push |
+| **Tests** | 70 tests across 10 files — CI on every push |
 | **Deployment** | Render (backend) · Vercel (frontend) · tradeski.dev |
 
 ---
@@ -106,6 +106,10 @@ Rule-based alerts — price above/below threshold, RSI overbought (>70) / overso
 
 Fundamental data for 28 curated stocks across five sectors, fetched in parallel via an 8-worker thread pool and cached per symbol. Filterable by P/E ratio, market cap tier, sector, and 52-week performance. Clicking a result loads that symbol on the chart.
 
+### Accounts & Saved Data
+
+Browsing, charting, the screener, and Ski work without an account. Creating a free account (email + password) persists your **portfolio, alerts, and watchlist** server-side so they survive across sessions and devices. Passwords are stored only as salted PBKDF2 hashes; sessions use signed, expiring bearer tokens (no server-side session table). Every personal record is scoped to its owner — the portfolio and alert tables are keyed by `user_id`, so one account can never read or mutate another's data. A published [Privacy Policy](frontend/privacy.html) documents exactly what is collected and why.
+
 ---
 
 ## Architecture
@@ -114,8 +118,9 @@ Fundamental data for 28 curated stocks across five sectors, fetched in parallel 
 Tradeski/
 │
 ├── tracker/                   # Core Python backend module
-│   ├── analyzer.py            # 10 quantitative indicators, implemented from scratch
-│   ├── database.py            # SQLite persistence — prices, alerts, portfolio
+│   ├── analyzer.py            # 10 quantitative indicators, written by hand on NumPy
+│   ├── auth.py                # Password hashing (PBKDF2) + signed bearer tokens
+│   ├── database.py            # SQLite persistence — prices, alerts, portfolio, users, watchlist
 │   ├── price_fetcher.py       # yfinance: live prices, OHLC history, screener data
 │   ├── fred.py                # FRED API client — 7 macro series with trend detection
 │   ├── news.py                # NewsAPI + VADER sentiment with financial lexicon
@@ -135,12 +140,13 @@ Tradeski/
 ├── frontend/                  # Static UI — served via Vercel
 │   ├── landing.html           # Landing page at tradeski.dev/
 │   ├── index.html             # Dashboard at tradeski.dev/app
+│   ├── privacy.html           # Privacy Policy at tradeski.dev/privacy.html
 │   ├── 404.html               # Custom terminal-style 404 page
 │   ├── favicon.svg            # SVG favicon
 │   ├── styles.css             # Terminal dark theme — CSS custom properties, mobile-responsive
 │   └── dashboard.js           # WebSocket, Plotly, Ski, screener, health indicator
 │
-├── tests/                     # pytest suite — 45 tests across 9 files
+├── tests/                     # pytest suite — 70 tests across 10 files
 │   ├── test_analyzer.py       # Indicator shape, value range, arithmetic correctness
 │   ├── test_analyzer_basic.py # Edge cases: empty input, flat series, single-element
 │   ├── test_database.py       # SQLite round-trips for prices, alerts, portfolio
@@ -210,6 +216,7 @@ Tradeski/
 | Web Framework | Flask + Flask-SocketIO |
 | Real-Time Transport | WebSocket (Socket.IO / gevent) |
 | Database | SQLite (`sqlite3` stdlib) |
+| Auth | PBKDF2 password hashing (werkzeug) · signed bearer tokens (itsdangerous) |
 | Market Data | yfinance (Yahoo Finance) |
 | Macro Data | FRED API (St. Louis Federal Reserve) |
 | News & Sentiment | NewsAPI + VADER with financial lexicon |
@@ -222,7 +229,7 @@ Tradeski/
 | Fonts | Space Grotesk · JetBrains Mono |
 | CI/CD | GitHub Actions |
 | Linting | Flake8 |
-| Testing | pytest (45 tests) |
+| Testing | pytest (70 tests) |
 | Backend Hosting | Render |
 | Frontend Hosting | Vercel |
 
@@ -230,7 +237,7 @@ Tradeski/
 
 ## Quantitative Indicators
 
-All ten indicators live in [`tracker/analyzer.py`](tracker/analyzer.py) and are implemented without TA-Lib or pandas — a deliberate choice that requires genuine engagement with the underlying mathematics.
+All ten indicators live in [`tracker/analyzer.py`](tracker/analyzer.py) and are written by hand on NumPy arrays — no TA-Lib, no pandas. NumPy provides only the primitive numerics (mean, standard deviation, least-squares); the indicator logic itself is implemented directly, which requires genuine engagement with the underlying mathematics.
 
 | Indicator | Implementation detail |
 |:---|:---|
@@ -259,7 +266,7 @@ Ski is powered by **Anthropic Claude Haiku 4.5** and grounded in three live data
 |:---|:---|:---|
 | System prompt | Static | Financial knowledge: equities, macro, sector rotation, indicator signals |
 | Macro context | FRED API (cached 1h) | CPI, Fed Funds Rate, GDP, unemployment, yield curve, credit spreads |
-| Portfolio context | SQLite (live) | Holdings, share counts, avg cost, current P&L |
+| Portfolio context | SQLite (live) | Per-holding weight, live P&L, portfolio risk (Sharpe/beta/vol), concentration flag, watchlist |
 | News context | NewsAPI + VADER (cached 30m) | Recent headlines for the viewed symbol with sentiment scores |
 
 Ski can answer "Is now a good time to add to my NVDA position?" with awareness of the user's actual cost basis, the current macro environment, and recent news sentiment — not boilerplate.
@@ -274,8 +281,9 @@ Ski can answer "Is now a good time to add to my NVDA position?" with awareness o
 
 | Measure | Implementation |
 |:---|:---|
-| Rate limiting | Flask-Limiter: **10 req/min** per IP globally · **20/hr + 50/day** on `/chat` |
-| Input sanitization | Strips HTML tags via regex · 500-character hard limit on chat messages |
+| Authentication | Salted PBKDF2 password hashing (werkzeug) · signed, expiring bearer tokens (itsdangerous) · per-`user_id` row scoping so accounts are isolated |
+| Rate limiting | Flask-Limiter: **10 req/min** per IP globally · **20/hr + 50/day** on `/chat` · **10/min** on `/auth/login` · **10/hr** on `/auth/register` |
+| Input sanitization | Strips HTML tags via regex · 500-character hard limit on chat messages · email/password validation on signup |
 | Symbol sanitization | Ticker restricted to `[A-Z0-9.]` — no injection vectors |
 | CORS | Restricted to `tradeski.dev` and `www.tradeski.dev` via `ALLOWED_ORIGINS` env var |
 | Secrets | All API keys read from environment variables exclusively — never committed |
@@ -368,8 +376,18 @@ VADER-scored headlines + aggregate sentiment. Cached 30 minutes. Requires `NEWS_
 }
 ```
 
+### `POST /auth/register` · `POST /auth/login`
+Create an account or sign in. Body: `{ "email": "you@example.com", "password": "…" }`. Returns a bearer token and the user record. Passwords are hashed with PBKDF2; the token is a signed, 30-day itsdangerous token.
+
+```json
+{ "token": "…", "user": { "id": 1, "email": "you@example.com" } }
+```
+
+### `GET /auth/me`
+Returns the signed-in user (requires `Authorization: Bearer <token>`).
+
 ### `GET /portfolio` · `POST /portfolio` · `DELETE /portfolio/<id>`
-List holdings with live P&L, add/update a position (UPSERT on symbol), or remove one.
+List holdings with live P&L, add/update a position (UPSERT on symbol), or remove one. **Requires authentication**; all holdings are scoped to the signed-in user.
 
 `POST` body: `{ "symbol": "AAPL", "shares": 10, "avg_cost": 175.00 }`
 
@@ -393,8 +411,11 @@ Pairwise 90-day return correlation matrix for all tracked symbols. Cached 1 hour
 ### `GET /screener`
 Fundamental data for the full 28-stock universe. Parallel fetch, cached 10 min per symbol.
 
+### `GET /watchlist/saved` · `POST /watchlist/saved` · `DELETE /watchlist/saved/<symbol>`
+Read, add to, or remove from the signed-in user's persistent watchlist. **Requires authentication.**
+
 ### `GET /alerts` · `POST /alerts` · `DELETE /alerts/<id>`
-List, create, and delete rule-based price and indicator alerts.
+List, create, and delete rule-based price and indicator alerts. **Requires authentication**; alerts are scoped to the signed-in user.
 
 ### `POST /chat`
 Ski chatbot. Body: `{ "message": "...", "history": [...], "symbol": "AAPL" }`.
@@ -434,6 +455,7 @@ Open `.env` and fill in the three required keys:
 
 | Variable | Where to get it | Required? |
 |:---|:---|:---|
+| `SECRET_KEY` | Generate: `python -c "import secrets; print(secrets.token_urlsafe(48))"` | Yes in production — signs auth tokens; unset = sessions reset on restart |
 | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) | Yes — powers Ski |
 | `FRED_API_KEY` | [fred.stlouisfed.org/docs/api/api_key.html](https://fred.stlouisfed.org/docs/api/api_key.html) | No — macro ribbon disabled without it |
 | `NEWS_API_KEY` | [newsapi.org/register](https://newsapi.org/register) | No — news panel disabled without it |
@@ -459,7 +481,7 @@ python -m http.server 8080 --directory frontend
 python -m pytest -v
 ```
 
-45 tests across 9 files:
+70 tests across 10 files:
 
 | File | What it covers |
 |:---|:---|
@@ -502,7 +524,7 @@ GitHub Actions runs lint and the full test suite on every push and pull request 
 
 The tools professional traders use daily — live indicators, macro dashboards, portfolio analytics, AI-assisted research — are locked behind expensive terminals or scattered across a dozen websites. Bloomberg Terminal costs $25,000/year. Retail investors end up making decisions on stale, fragmented information.
 
-The goal was to build a platform that integrates all of those data sources into a single coherent interface — and to build it properly. That meant implementing every quantitative indicator from first principles rather than importing a library. It meant wiring a real macroeconomic data pipeline directly from the Federal Reserve. It meant building an AI assistant that knows what the user is actually looking at, not one answering questions in a vacuum.
+The goal was to build a platform that integrates all of those data sources into a single coherent interface — and to build it properly. That meant implementing every quantitative indicator by hand rather than importing an indicator library. It meant wiring a real macroeconomic data pipeline directly from the Federal Reserve. It meant building an AI assistant that knows what the user is actually looking at, not one answering questions in a vacuum.
 
 Writing Wilder's smoothing from scratch requires understanding why it diverges from a simple moving average and what that difference means at the edges of a time series. Writing the VADER financial lexicon requires reading enough headlines to know that "beats" and "surges" are systematically under-scored by a general-purpose sentiment model. These are not problems that get solved by importing a package.
 
@@ -510,7 +532,7 @@ Tradeski spans six engineering disciplines in one codebase:
 
 - **Data engineering** — real-time polling, SQLite schema design, TTL caching, 30-day retention pruning
 - **Backend architecture** — REST API design, WebSocket streaming, background scheduling, parallel HTTP fetching
-- **Quantitative analysis** — ten financial indicators from first principles; Sharpe ratio, beta, and volatility from raw daily return vectors
+- **Quantitative analysis** — ten financial indicators written by hand on NumPy; Sharpe ratio, beta, and volatility from raw daily return vectors
 - **Statistical computing** — pairwise correlation matrix over 90-day return series; portfolio variance weighted by live market value
 - **AI integration** — context injection pipeline, grounding an LLM in live structured data
 - **Frontend engineering** — real-time state management, multi-library charting, normalized multi-stock overlays, terminal-grade UI

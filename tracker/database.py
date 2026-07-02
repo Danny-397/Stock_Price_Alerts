@@ -23,8 +23,13 @@ def _connect() -> sqlite3.Connection:
 # Initialization
 # ------------------------------------------------------------------------------
 
+def _column_names(cursor: sqlite3.Cursor, table: str) -> List[str]:
+    """Return existing column names for a table (empty list if it doesn't exist)."""
+    return [row[1] for row in cursor.execute(f"PRAGMA table_info({table})").fetchall()]
+
+
 def init_db() -> None:
-    """Initialize the database with prices and alerts tables."""
+    """Initialize the database and migrate legacy tables to the per-user schema."""
     conn = _connect()
     cursor = conn.cursor()
 
@@ -40,10 +45,23 @@ def init_db() -> None:
         """
     )
 
+    # Accounts.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            password_hash TEXT NOT NULL,
+            created_at    TEXT DEFAULT (datetime('now'))
+        )
+        """
+    )
+
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS alerts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
             symbol TEXT NOT NULL,
             alert_type TEXT NOT NULL,
             message TEXT,
@@ -55,21 +73,108 @@ def init_db() -> None:
         )
         """
     )
+    # Legacy alerts table (pre-auth) lacks user_id — add it non-destructively.
+    if "user_id" not in _column_names(cursor, "alerts"):
+        cursor.execute("ALTER TABLE alerts ADD COLUMN user_id INTEGER")
+
+    # Portfolio: per-user, unique per (user, symbol). The pre-auth table had a
+    # bare UNIQUE(symbol) constraint that can't be altered in place, so recreate
+    # it when migrating. Existing rows are preserved with a NULL owner (they
+    # simply won't surface for any signed-in user).
+    portfolio_cols = _column_names(cursor, "portfolio")
+    if portfolio_cols and "user_id" not in portfolio_cols:
+        cursor.execute("ALTER TABLE portfolio RENAME TO portfolio_legacy")
 
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS portfolio (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol     TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+            user_id    INTEGER,
+            symbol     TEXT    NOT NULL COLLATE NOCASE,
             shares     REAL    NOT NULL CHECK (shares > 0),
             avg_cost   REAL,
-            added_at   TEXT    DEFAULT (datetime('now'))
+            added_at   TEXT    DEFAULT (datetime('now')),
+            UNIQUE(user_id, symbol)
+        )
+        """
+    )
+    if _table_exists(cursor, "portfolio_legacy"):
+        cursor.execute(
+            """
+            INSERT INTO portfolio (user_id, symbol, shares, avg_cost, added_at)
+            SELECT NULL, symbol, shares, avg_cost, added_at FROM portfolio_legacy
+            """
+        )
+        cursor.execute("DROP TABLE portfolio_legacy")
+
+    # Per-user persistent watchlist (previously in-memory only).
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS watchlist (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id  INTEGER NOT NULL,
+            symbol   TEXT NOT NULL COLLATE NOCASE,
+            added_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(user_id, symbol)
         )
         """
     )
 
     conn.commit()
     conn.close()
+
+
+def _table_exists(cursor: sqlite3.Cursor, table: str) -> bool:
+    row = cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()
+    return row is not None
+
+
+# ------------------------------------------------------------------------------
+# Users
+# ------------------------------------------------------------------------------
+
+def create_user(email: str, password_hash: str) -> Optional[int]:
+    """Insert a new user. Returns the new id, or None if the email is taken."""
+    conn = _connect()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO users (email, password_hash) VALUES (?, ?)",
+            (email.strip().lower(), password_hash),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    except sqlite3.IntegrityError:
+        return None
+    finally:
+        conn.close()
+
+
+def get_user_by_email(email: str) -> Optional[dict]:
+    conn = _connect()
+    cursor = conn.cursor()
+    row = cursor.execute(
+        "SELECT id, email, password_hash FROM users WHERE email = ?",
+        (email.strip().lower(),),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {"id": row[0], "email": row[1], "password_hash": row[2]}
+
+
+def get_user_by_id(user_id: int) -> Optional[dict]:
+    conn = _connect()
+    cursor = conn.cursor()
+    row = cursor.execute(
+        "SELECT id, email, created_at FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {"id": row[0], "email": row[1], "created_at": row[2]}
 
 
 # ------------------------------------------------------------------------------
@@ -174,9 +279,10 @@ def create_alert(
     threshold: Optional[float] = None,
     multiplier: Optional[float] = None,
     zscore: Optional[float] = None,
+    user_id: Optional[int] = None,
 ) -> int:
     """
-    Create a rule-based alert (used by dashboard API).
+    Create a rule-based alert (used by dashboard API), owned by a user.
     """
     conn = _connect()
     cursor = conn.cursor()
@@ -184,11 +290,11 @@ def create_alert(
     cursor.execute(
         """
         INSERT INTO alerts (
-            symbol, alert_type, threshold, multiplier, zscore, created_at
+            user_id, symbol, alert_type, threshold, multiplier, zscore, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (symbol, alert_type, threshold, multiplier, zscore, time.time()),
+        (user_id, symbol, alert_type, threshold, multiplier, zscore, time.time()),
     )
 
     alert_id = cursor.lastrowid
@@ -220,9 +326,9 @@ def get_recent_alerts(symbol: str, limit: int = 10):
     return rows
 
 
-def get_alerts():
+def get_alerts(user_id: int):
     """
-    Return all active alerts (for dashboard listing).
+    Return a user's active alerts (for dashboard listing).
     """
     conn = _connect()
     cursor = conn.cursor()
@@ -231,9 +337,10 @@ def get_alerts():
         """
         SELECT id, symbol, alert_type, threshold, multiplier, zscore, created_at
         FROM alerts
-        WHERE active = 1
+        WHERE active = 1 AND user_id = ?
         ORDER BY created_at DESC
-        """
+        """,
+        (user_id,),
     )
 
     rows = cursor.fetchall()
@@ -241,12 +348,14 @@ def get_alerts():
     return rows
 
 
-def delete_alert(alert_id: int) -> None:
-    """Delete an alert by id."""
+def delete_alert(alert_id: int, user_id: int) -> None:
+    """Delete an alert by id, scoped to its owner."""
     conn = _connect()
     cursor = conn.cursor()
 
-    cursor.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
+    cursor.execute(
+        "DELETE FROM alerts WHERE id = ? AND user_id = ?", (alert_id, user_id)
+    )
     conn.commit()
     conn.close()
 
@@ -256,37 +365,38 @@ def delete_alert(alert_id: int) -> None:
 # ------------------------------------------------------------------------------
 
 def upsert_holding(
+    user_id: int,
     symbol: str,
     shares: float,
     avg_cost: Optional[float] = None,
 ) -> int:
-    """Insert a new holding or update shares/avg_cost if the symbol already exists."""
+    """Insert or update a user's holding (unique per user + symbol)."""
     sym = symbol.upper().strip()
     conn = _connect()
     cursor = conn.cursor()
 
     cursor.execute(
         """
-        INSERT INTO portfolio (symbol, shares, avg_cost, added_at)
-        VALUES (?, ?, ?, datetime('now'))
-        ON CONFLICT(symbol) DO UPDATE SET
+        INSERT INTO portfolio (user_id, symbol, shares, avg_cost, added_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id, symbol) DO UPDATE SET
             shares   = excluded.shares,
             avg_cost = excluded.avg_cost,
             added_at = excluded.added_at
         """,
-        (sym, shares, avg_cost),
+        (user_id, sym, shares, avg_cost),
     )
 
     conn.commit()
     row_id: int = cursor.execute(
-        "SELECT id FROM portfolio WHERE symbol = ?", (sym,)
+        "SELECT id FROM portfolio WHERE user_id = ? AND symbol = ?", (user_id, sym)
     ).fetchone()[0]
     conn.close()
     return row_id
 
 
-def get_portfolio() -> List[dict]:
-    """Return all portfolio holdings ordered by symbol."""
+def get_portfolio(user_id: int) -> List[dict]:
+    """Return a user's portfolio holdings ordered by symbol."""
     conn = _connect()
     cursor = conn.cursor()
 
@@ -294,8 +404,10 @@ def get_portfolio() -> List[dict]:
         """
         SELECT id, symbol, shares, avg_cost, added_at
         FROM portfolio
+        WHERE user_id = ?
         ORDER BY symbol ASC
-        """
+        """,
+        (user_id,),
     )
 
     rows = cursor.fetchall()
@@ -312,10 +424,56 @@ def get_portfolio() -> List[dict]:
     ]
 
 
-def delete_holding(holding_id: int) -> None:
-    """Remove a portfolio holding by id."""
+def delete_holding(holding_id: int, user_id: int) -> None:
+    """Remove a user's portfolio holding by id (scoped to its owner)."""
     conn = _connect()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM portfolio WHERE id = ?", (holding_id,))
+    cursor.execute(
+        "DELETE FROM portfolio WHERE id = ? AND user_id = ?", (holding_id, user_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+# ------------------------------------------------------------------------------
+# Watchlist (per-user, persistent)
+# ------------------------------------------------------------------------------
+
+def get_watchlist(user_id: int) -> List[str]:
+    """Return a user's watchlist symbols, newest first."""
+    conn = _connect()
+    cursor = conn.cursor()
+    rows = cursor.execute(
+        "SELECT symbol FROM watchlist WHERE user_id = ? ORDER BY added_at DESC",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def add_to_watchlist(user_id: int, symbol: str) -> None:
+    """Add a symbol to a user's watchlist (no-op if already present)."""
+    sym = symbol.upper().strip()
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO watchlist (user_id, symbol) VALUES (?, ?)
+        ON CONFLICT(user_id, symbol) DO NOTHING
+        """,
+        (user_id, sym),
+    )
+    conn.commit()
+    conn.close()
+
+
+def remove_from_watchlist(user_id: int, symbol: str) -> None:
+    """Remove a symbol from a user's watchlist."""
+    sym = symbol.upper().strip()
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM watchlist WHERE user_id = ? AND symbol = ?", (user_id, sym)
+    )
     conn.commit()
     conn.close()

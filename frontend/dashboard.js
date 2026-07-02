@@ -37,10 +37,218 @@ let state = {
 };
 
 // ============================================================
+// AUTH
+// ============================================================
+
+const AUTH_KEY = "tradeski_token";
+const authState = { user: null, mode: "login" };
+
+function getToken() { return localStorage.getItem(AUTH_KEY) || ""; }
+
+function setSession(token, user) {
+    localStorage.setItem(AUTH_KEY, token);
+    authState.user = user;
+    updateAuthUI();
+}
+
+function clearSession() {
+    localStorage.removeItem(AUTH_KEY);
+    authState.user = null;
+    updateAuthUI();
+}
+
+// Inject the bearer token on same-API requests from one place, so every
+// existing fetch call is authenticated without being individually modified.
+const _origFetch = window.fetch.bind(window);
+window.fetch = function (input, init) {
+    try {
+        const url = typeof input === "string" ? input : (input && input.url) || "";
+        const token = getToken();
+        if (token && url.startsWith(CFG.API)) {
+            init = init ? { ...init } : {};
+            const headers = new Headers(init.headers || {});
+            if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+            init.headers = headers;
+        }
+    } catch (_) { /* fall through to a normal request */ }
+    return _origFetch(input, init);
+};
+
+function initAuth() {
+    document.getElementById("signin-btn").addEventListener("click", () => openAuthModal("login"));
+    document.getElementById("logout-btn").addEventListener("click", logout);
+    document.getElementById("close-auth-btn").addEventListener("click", closeAuthModal);
+    document.getElementById("auth-modal").addEventListener("click", (e) => {
+        if (e.target === document.getElementById("auth-modal")) closeAuthModal();
+    });
+    document.getElementById("auth-toggle-btn").addEventListener("click", () =>
+        setAuthMode(authState.mode === "login" ? "register" : "login"));
+    document.getElementById("auth-submit-btn").addEventListener("click", submitAuth);
+    ["auth-email-input", "auth-password-input"].forEach((id) => {
+        document.getElementById(id).addEventListener("keydown", (e) => {
+            if (e.key === "Enter") submitAuth();
+        });
+    });
+    validateSession();
+}
+
+function openAuthModal(mode) {
+    setAuthMode(mode || "login");
+    clearAuthError();
+    document.getElementById("auth-modal").style.display = "flex";
+    document.getElementById("auth-email-input").focus();
+}
+
+function closeAuthModal() {
+    document.getElementById("auth-modal").style.display = "none";
+}
+
+function setAuthMode(mode) {
+    authState.mode = mode;
+    const isLogin = mode === "login";
+    document.getElementById("auth-title").textContent = isLogin ? "SIGN IN" : "CREATE ACCOUNT";
+    document.getElementById("auth-submit-btn").textContent = isLogin ? "SIGN IN" : "CREATE ACCOUNT";
+    document.getElementById("auth-intro").textContent = isLogin
+        ? "Sign in to save your portfolio, alerts, and watchlist across devices."
+        : "Create a free account to save your portfolio, alerts, and watchlist.";
+    document.getElementById("auth-toggle-text").textContent = isLogin ? "New to Tradeski?" : "Already have an account?";
+    document.getElementById("auth-toggle-btn").textContent = isLogin ? "Create an account" : "Sign in";
+    document.getElementById("auth-password-input").setAttribute("autocomplete", isLogin ? "current-password" : "new-password");
+    clearAuthError();
+}
+
+function showAuthError(msg) {
+    const el = document.getElementById("auth-error");
+    el.textContent = msg;
+    el.style.display = "";
+}
+
+function clearAuthError() {
+    const el = document.getElementById("auth-error");
+    el.textContent = "";
+    el.style.display = "none";
+}
+
+async function submitAuth() {
+    const email = document.getElementById("auth-email-input").value.trim();
+    const password = document.getElementById("auth-password-input").value;
+    if (!email || !password) { showAuthError("Enter your email and password."); return; }
+
+    const btn = document.getElementById("auth-submit-btn");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "...";
+    clearAuthError();
+
+    try {
+        const endpoint = authState.mode === "login" ? "login" : "register";
+        const res = await fetch(`${CFG.API}/auth/${endpoint}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            showAuthError(data.error || "Something went wrong — please try again.");
+            return;
+        }
+        setSession(data.token, data.user);
+        closeAuthModal();
+        document.getElementById("auth-password-input").value = "";
+        onSignedIn();
+    } catch (_) {
+        showAuthError("Network error — the backend may be waking up. Try again in a moment.");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+    }
+}
+
+async function validateSession() {
+    if (!getToken()) { updateAuthUI(); onSignedOut(); return; }
+    try {
+        const res = await fetch(`${CFG.API}/auth/me`);
+        if (res.ok) {
+            const data = await res.json();
+            authState.user = data.user;
+            updateAuthUI();
+            onSignedIn();
+        } else {
+            clearSession();
+            onSignedOut();
+        }
+    } catch (_) {
+        // Backend asleep/unreachable — keep the token and show optimistic UI.
+        updateAuthUI();
+    }
+}
+
+function logout() {
+    clearSession();
+    onSignedOut();
+}
+
+function updateAuthUI() {
+    const signinBtn = document.getElementById("signin-btn");
+    const userBox = document.getElementById("auth-user");
+    const emailEl = document.getElementById("auth-email");
+    if (!signinBtn || !userBox) return;
+    if (authState.user) {
+        signinBtn.style.display = "none";
+        userBox.style.display = "";
+        emailEl.textContent = authState.user.email;
+    } else {
+        signinBtn.style.display = "";
+        userBox.style.display = "none";
+        emailEl.textContent = "";
+    }
+}
+
+function onSignedIn() {
+    loadPortfolio();
+    loadAlerts();
+}
+
+function onSignedOut() {
+    renderSignedOutPortfolio();
+    renderSignedOutAlerts();
+}
+
+function renderSignedOutPortfolio() {
+    const list = document.getElementById("portfolio-list");
+    const badge = document.getElementById("portfolio-total-badge");
+    const footer = document.getElementById("pf-footer");
+    const risk = document.getElementById("pf-risk");
+    if (badge) { badge.textContent = "—"; badge.style.color = ""; }
+    if (risk) risk.style.display = "none";
+    if (footer) footer.style.display = "none";
+    if (list) {
+        list.innerHTML =
+            '<div class="feed-empty signed-out-prompt">Sign in to track your portfolio & P&amp;L'
+            + '<button class="btn-secondary signed-out-cta" onclick="openAuthModal(\'login\')">Sign in</button></div>';
+    }
+    showSkiStarters(false);
+}
+
+function renderSignedOutAlerts() {
+    const list = document.getElementById("active-alerts-list");
+    const badge = document.getElementById("alert-count");
+    const footer = document.getElementById("alert-footer");
+    if (badge) badge.textContent = "0";
+    if (footer) footer.style.display = "none";
+    if (list) {
+        list.innerHTML =
+            '<div class="feed-empty signed-out-prompt">Sign in to create price &amp; indicator alerts'
+            + '<button class="btn-secondary signed-out-cta" onclick="openAuthModal(\'login\')">Sign in</button></div>';
+    }
+}
+
+// ============================================================
 // BOOT
 // ============================================================
 
 document.addEventListener("DOMContentLoaded", () => {
+    initAuth();
     updateMarketStatus();
     setInterval(updateMarketStatus, 60_000);
     initWebSocket();
@@ -50,7 +258,6 @@ document.addEventListener("DOMContentLoaded", () => {
     initAlertModal();
     initSidebarTabs();
     loadDashboard(state.symbol);
-    loadAlerts();
     buildTickerTape();
     setInterval(buildTickerTape, CFG.TICKER_REFRESH_MS);
     initPortfolio();
@@ -917,8 +1124,10 @@ function renderHeaderPrice(symbol, price, pct) {
 // ============================================================
 
 async function loadAlerts() {
+    if (!getToken()) { renderSignedOutAlerts(); return; }
     try {
         const res = await fetch(`${CFG.API}/alerts`);
+        if (res.status === 401) { clearSession(); renderSignedOutAlerts(); return; }
         if (!res.ok) return;
         state.alerts = await res.json();
         renderAlertList();
@@ -928,6 +1137,8 @@ async function loadAlerts() {
 function renderAlertList() {
     const el    = document.getElementById("active-alerts-list");
     const badge = document.getElementById("alert-count");
+    const footer = document.getElementById("alert-footer");
+    if (footer) footer.style.display = "";
     badge.textContent = state.alerts.length;
 
     if (!state.alerts.length) {
@@ -985,6 +1196,7 @@ function initAlertModal() {
 }
 
 async function submitAlert() {
+    if (!getToken()) { openAuthModal("login"); return; }
     const symbol    = document.getElementById("alert-symbol").value.trim().toUpperCase();
     const alertType = document.getElementById("alert-type").value;
     const threshold = parseFloat(document.getElementById("alert-threshold").value) || null;
@@ -1070,8 +1282,10 @@ function initPortfolio() {
 }
 
 async function loadPortfolio() {
+    if (!getToken()) { renderSignedOutPortfolio(); return; }
     try {
         const res  = await fetch(`${CFG.API}/portfolio`);
+        if (res.status === 401) { clearSession(); renderSignedOutPortfolio(); return; }
         const data = await res.json();
         renderPortfolio(data);
     } catch {
@@ -1082,6 +1296,8 @@ async function loadPortfolio() {
 function renderPortfolio(data) {
     const list  = document.getElementById("portfolio-list");
     const badge = document.getElementById("portfolio-total-badge");
+    const footer = document.getElementById("pf-footer");
+    if (footer) footer.style.display = "";
 
     const holdings = data.holdings || [];
     const total    = data.total_value || 0;
@@ -1169,6 +1385,7 @@ function renderPortfolio(data) {
 }
 
 async function submitHolding() {
+    if (!getToken()) { openAuthModal("login"); return; }
     const symEl  = document.getElementById("pf-symbol");
     const shEl   = document.getElementById("pf-shares");
     const costEl = document.getElementById("pf-avgcost");

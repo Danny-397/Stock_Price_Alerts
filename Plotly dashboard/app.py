@@ -10,12 +10,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import re
 import time
 import datetime
+from functools import wraps
 from typing import List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from flask_socketio import SocketIO
 from flask_limiter import Limiter
@@ -25,6 +26,7 @@ import anthropic
 
 from cache import SimpleCache
 from tracker import database
+from tracker import auth
 from tracker.fred import get_macro_snapshot, format_macro_context
 from tracker.news import fetch_news, aggregate_sentiment, format_news_context
 from tracker.price_fetcher import get_stock_price, get_ohlc_history, get_screener_data
@@ -110,6 +112,89 @@ def rows_to_dict(
     prices = [row[1] for row in rows]
     volume = [row[2] for row in rows]
     return timestamps, prices, volume
+
+
+# ─────────────────────────────────────────────────────────────
+# Authentication
+# ─────────────────────────────────────────────────────────────
+
+def _bearer_token() -> str:
+    """Extract the bearer token from the Authorization header."""
+    header = request.headers.get("Authorization", "")
+    if header.startswith("Bearer "):
+        return header[7:].strip()
+    return ""
+
+
+def _resolve_user() -> Optional[int]:
+    """Return the authenticated user id for this request, or None."""
+    return auth.verify_token(_bearer_token())
+
+
+def require_auth(fn):
+    """Reject the request with 401 unless it carries a valid token."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        user_id = _resolve_user()
+        if user_id is None:
+            return jsonify({"error": "Sign in to use this feature."}), 401
+        g.user_id = user_id
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def optional_auth(fn):
+    """Set g.user_id if a valid token is present; otherwise leave it None."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        g.user_id = _resolve_user()
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+@app.route("/auth/register", methods=["POST"])
+@limiter.limit("10 per hour")
+def register() -> tuple:
+    data = request.json or {}
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+
+    if not auth.is_valid_email(email):
+        return jsonify({"error": "Enter a valid email address."}), 400
+    problem = auth.password_problem(password)
+    if problem:
+        return jsonify({"error": problem}), 400
+
+    user_id = database.create_user(email, auth.hash_password(password))
+    if user_id is None:
+        return jsonify({"error": "An account with that email already exists."}), 409
+
+    token = auth.generate_token(user_id)
+    return jsonify({"token": token, "user": {"id": user_id, "email": email.lower()}})
+
+
+@app.route("/auth/login", methods=["POST"])
+@limiter.limit("10 per minute")
+def login() -> tuple:
+    data = request.json or {}
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+
+    user = database.get_user_by_email(email)
+    if not user or not auth.verify_password(password, user["password_hash"]):
+        return jsonify({"error": "Incorrect email or password."}), 401
+
+    token = auth.generate_token(user["id"])
+    return jsonify({"token": token, "user": {"id": user["id"], "email": user["email"]}})
+
+
+@app.route("/auth/me")
+@require_auth
+def me() -> tuple:
+    user = database.get_user_by_id(g.user_id)
+    if not user:
+        return jsonify({"error": "Account not found."}), 404
+    return jsonify({"user": user})
 
 
 # ─────────────────────────────────────────────────────────────
@@ -277,6 +362,34 @@ def watchlist() -> tuple:
     return jsonify(result)
 
 
+@app.route("/watchlist/saved", methods=["GET"])
+@require_auth
+def get_saved_watchlist() -> tuple:
+    """Return the signed-in user's persistent watchlist symbols."""
+    return jsonify({"symbols": database.get_watchlist(g.user_id)})
+
+
+@app.route("/watchlist/saved", methods=["POST"])
+@require_auth
+def add_saved_watchlist() -> tuple:
+    """Add a symbol to the signed-in user's persistent watchlist."""
+    data = request.json or {}
+    symbol = re.sub(r"[^A-Z0-9.]", "", (data.get("symbol") or "").upper())[:10]
+    if not symbol:
+        return jsonify({"error": "symbol is required"}), 400
+    database.add_to_watchlist(g.user_id, symbol)
+    return jsonify({"status": "ok", "symbols": database.get_watchlist(g.user_id)})
+
+
+@app.route("/watchlist/saved/<symbol>", methods=["DELETE"])
+@require_auth
+def delete_saved_watchlist(symbol: str) -> tuple:
+    """Remove a symbol from the signed-in user's persistent watchlist."""
+    clean = re.sub(r"[^A-Z0-9.]", "", (symbol or "").upper())[:10]
+    database.remove_from_watchlist(g.user_id, clean)
+    return jsonify({"status": "deleted", "symbols": database.get_watchlist(g.user_id)})
+
+
 @app.route("/market_status")
 def market_status() -> tuple:
     """Return simple market‑open heuristic based on server UTC time."""
@@ -297,14 +410,16 @@ def market_status() -> tuple:
 
 
 @app.route("/alerts", methods=["GET"])
+@require_auth
 def get_alerts() -> tuple:
-    """Return all alerts."""
-    return jsonify(database.get_alerts())
+    """Return the signed-in user's alerts."""
+    return jsonify(database.get_alerts(g.user_id))
 
 
 @app.route("/alerts", methods=["POST"])
+@require_auth
 def create_alert() -> tuple:
-    """Create a new alert."""
+    """Create a new alert owned by the signed-in user."""
     data = request.json or {}
 
     symbol = data.get("symbol")
@@ -319,15 +434,17 @@ def create_alert() -> tuple:
         threshold,
         multiplier,
         zscore_val,
+        user_id=g.user_id,
     )
 
     return jsonify({"status": "ok", "alert_id": alert_id})
 
 
 @app.route("/alerts/<int:alert_id>", methods=["DELETE"])
+@require_auth
 def delete_alert(alert_id: int) -> tuple:
-    """Delete an alert."""
-    database.delete_alert(alert_id)
+    """Delete one of the signed-in user's alerts."""
+    database.delete_alert(alert_id, g.user_id)
     return jsonify({"status": "deleted"})
 
 
@@ -398,9 +515,10 @@ def _enrich_holding(h: dict) -> dict:
 
 
 @app.route("/portfolio", methods=["GET"])
+@require_auth
 def get_portfolio_route() -> tuple:
-    """Return all holdings enriched with current prices and P&L."""
-    holdings = [_enrich_holding(h) for h in database.get_portfolio()]
+    """Return the signed-in user's holdings enriched with current prices and P&L."""
+    holdings = [_enrich_holding(h) for h in database.get_portfolio(g.user_id)]
 
     total_value = sum(h["market_value"] for h in holdings if h["market_value"])
     cost_basis = sum(
@@ -423,8 +541,9 @@ def get_portfolio_route() -> tuple:
 
 
 @app.route("/portfolio", methods=["POST"])
+@require_auth
 def add_holding_route() -> tuple:
-    """Add or update a portfolio holding."""
+    """Add or update one of the signed-in user's holdings."""
     data = request.json or {}
     symbol = (data.get("symbol") or "").strip().upper()
     shares = data.get("shares")
@@ -446,28 +565,44 @@ def add_holding_route() -> tuple:
         except (TypeError, ValueError):
             return jsonify({"error": "avg_cost must be a non-negative number"}), 400
 
-    holding_id = database.upsert_holding(symbol, shares, avg_cost)
+    holding_id = database.upsert_holding(g.user_id, symbol, shares, avg_cost)
     return jsonify({"status": "ok", "id": holding_id})
 
 
 @app.route("/portfolio/<int:holding_id>", methods=["DELETE"])
+@require_auth
 def delete_holding_route(holding_id: int) -> tuple:
-    """Remove a portfolio holding."""
-    database.delete_holding(holding_id)
+    """Remove one of the signed-in user's holdings."""
+    database.delete_holding(holding_id, g.user_id)
     return jsonify({"status": "deleted"})
 
 
-def _get_portfolio_context() -> str:
-    """Format the user's portfolio for injection into Ski's context."""
-    holdings = [_enrich_holding(h) for h in database.get_portfolio()]
+def _get_portfolio_context(user_id: Optional[int]) -> str:
+    """Format a user's portfolio for injection into Ski's context.
+
+    Beyond raw holdings, this surfaces each position's weight (concentration),
+    the portfolio's computed risk metrics (Sharpe, beta, volatility), and the
+    user's watchlist — so Ski can reason about diversification and risk, not
+    just list positions.
+    """
+    if user_id is None:
+        return ""
+    holdings = [_enrich_holding(h) for h in database.get_portfolio(user_id)]
     if not holdings:
         return ""
 
-    lines = [f"USER'S PORTFOLIO — {datetime.date.today()}:"]
-    total_value = 0.0
-    total_cost = 0.0
+    total_value = sum(h["market_value"] for h in holdings if h.get("market_value"))
+    total_cost = sum(
+        h["shares"] * h["avg_cost"] for h in holdings if h.get("avg_cost")
+    )
 
-    for h in holdings:
+    lines = [f"USER'S PORTFOLIO — {datetime.date.today()}:"]
+
+    # Largest positions first so Ski leads with what matters most.
+    ordered = sorted(
+        holdings, key=lambda h: h.get("market_value") or 0, reverse=True
+    )
+    for h in ordered:
         symbol = h["symbol"]
         shares = h["shares"]
         avg_cost = h.get("avg_cost")
@@ -481,9 +616,8 @@ def _get_portfolio_context() -> str:
             line += f" | price ${current:.2f}"
         if mv:
             line += f" | value ${mv:,.2f}"
-            total_value += mv
-        if avg_cost:
-            total_cost += shares * avg_cost
+            if total_value:
+                line += f" | {mv / total_value * 100:.0f}% of portfolio"
         if h.get("pnl_pct") is not None:
             sign = "+" if h["pnl_pct"] >= 0 else ""
             line += f" | P&L {sign}{h['pnl_pct']:.1f}% (${h['pnl_abs']:+,.2f})"
@@ -495,6 +629,29 @@ def _get_portfolio_context() -> str:
         pnl = (total_value - total_cost) / total_cost * 100
         sign = "+" if pnl >= 0 else ""
         lines.append(f"  TOTAL P&L: {sign}{pnl:.1f}%")
+
+    # Concentration note — the single biggest position by weight.
+    if total_value and len(ordered) > 1 and ordered[0].get("market_value"):
+        top = ordered[0]
+        top_wt = top["market_value"] / total_value * 100
+        if top_wt >= 40:
+            lines.append(
+                f"  CONCENTRATION: {top['symbol']} is {top_wt:.0f}% of the portfolio "
+                f"— flag single-name concentration risk when relevant."
+            )
+
+    risk = _portfolio_risk_cached(user_id)
+    if risk:
+        lines.append(
+            "  RISK METRICS (1Y daily returns, value-weighted): "
+            f"Sharpe {risk['sharpe']}, "
+            f"beta vs S&P 500 {risk['beta']}, "
+            f"annualized volatility {risk['volatility']}%."
+        )
+
+    watch = database.get_watchlist(user_id)
+    if watch:
+        lines.append(f"  WATCHLIST (not held): {', '.join(watch[:15])}")
 
     return "\n".join(lines)
 
@@ -660,14 +817,14 @@ def correlation_endpoint() -> tuple:
 # Portfolio Risk Metrics
 # ─────────────────────────────────────────────────────────────
 
-@app.route("/portfolio/risk")
-def portfolio_risk_endpoint() -> tuple:
-    """Return Sharpe ratio, beta vs SPY, and annualized volatility for the portfolio."""
-    holdings = [_enrich_holding(h) for h in database.get_portfolio()]
-    valued = [h for h in holdings if h.get("market_value") and h["market_value"] > 0]
+def _compute_portfolio_risk(holdings: List[dict]) -> Tuple[Optional[dict], Optional[str]]:
+    """Compute Sharpe, beta vs SPY, and annualized vol from enriched holdings.
 
+    Returns (metrics, None) on success or (None, reason) when it can't be computed.
+    """
+    valued = [h for h in holdings if h.get("market_value") and h["market_value"] > 0]
     if not valued:
-        return jsonify({"error": "No valued holdings"}), 404
+        return None, "No valued holdings"
 
     total_value = sum(h["market_value"] for h in valued)
     fetch_syms = list({h["symbol"] for h in valued}) + ["SPY"]
@@ -680,7 +837,7 @@ def portfolio_risk_endpoint() -> tuple:
             price_data[sym] = np.diff(prices) / prices[:-1]
 
     if "SPY" not in price_data:
-        return jsonify({"error": "Insufficient data"}), 503
+        return None, "Insufficient data"
 
     min_len = min(len(v) for v in price_data.values())
     aligned = {k: v[-min_len:] for k, v in price_data.items()}
@@ -694,15 +851,40 @@ def portfolio_risk_endpoint() -> tuple:
     spy_returns = aligned["SPY"]
     std = float(np.std(port_returns))
     if std == 0:
-        return jsonify({"error": "Insufficient variance"}), 503
+        return None, "Insufficient variance"
 
     RISK_FREE_DAILY = 0.045 / 252
-    ann_vol  = round(std * float(np.sqrt(252)) * 100, 1)
-    sharpe   = round(float((np.mean(port_returns) - RISK_FREE_DAILY) / std * np.sqrt(252)), 2)
-    spy_var  = float(np.var(spy_returns))
-    beta     = round(float(np.cov(port_returns, spy_returns)[0][1] / spy_var), 2) if spy_var > 0 else 1.0
+    ann_vol = round(std * float(np.sqrt(252)) * 100, 1)
+    sharpe = round(float((np.mean(port_returns) - RISK_FREE_DAILY) / std * np.sqrt(252)), 2)
+    spy_var = float(np.var(spy_returns))
+    beta = round(float(np.cov(port_returns, spy_returns)[0][1] / spy_var), 2) if spy_var > 0 else 1.0
 
-    return jsonify({"sharpe": sharpe, "beta": beta, "volatility": ann_vol})
+    return {"sharpe": sharpe, "beta": beta, "volatility": ann_vol}, None
+
+
+def _portfolio_risk_cached(user_id: int) -> Optional[dict]:
+    """Return cached portfolio risk metrics for a user, computing them if stale."""
+    key = f"risk:{user_id}"
+    cached = _cache.get(key)
+    if cached is not None:
+        return cached
+    holdings = [_enrich_holding(h) for h in database.get_portfolio(user_id)]
+    result, _err = _compute_portfolio_risk(holdings)
+    if result is not None:
+        _cache.set(key, result, ttl=300)
+    return result
+
+
+@app.route("/portfolio/risk")
+@require_auth
+def portfolio_risk_endpoint() -> tuple:
+    """Return Sharpe ratio, beta vs SPY, and annualized volatility for the user's portfolio."""
+    holdings = [_enrich_holding(h) for h in database.get_portfolio(g.user_id)]
+    result, err = _compute_portfolio_risk(holdings)
+    if result is None:
+        return jsonify({"error": err}), 404 if err == "No valued holdings" else 503
+    _cache.set(f"risk:{g.user_id}", result, ttl=300)
+    return jsonify(result)
 
 
 _SKI_SYSTEM_PROMPT = """You are Ski, a financial Q&A assistant built into the Tradeski real-time market analytics platform. \
@@ -767,10 +949,17 @@ Stochastic, Linear Regression), and alert functionality
 - When relevant, suggest which indicators on the Tradeski dashboard are most useful for the user's question
 
 PORTFOLIO-AWARE BEHAVIOR
-You have access to the user's actual portfolio holdings and current macroeconomic data injected below. Always reference \
-their specific positions when relevant. Prioritize answering: how does today's macro environment affect THIS user's \
-specific holdings? Be specific about tickers they hold, not generic market commentary. When a user asks about their \
-portfolio, lead with the positions most affected before discussing general market context.
+You have access to the user's actual portfolio — holdings with cost basis and live P&L, each position's WEIGHT (percent \
+of the portfolio), the portfolio's computed RISK METRICS (Sharpe ratio, beta vs. the S&P 500, annualized volatility), any \
+CONCENTRATION flag, and their WATCHLIST — plus current macro data and news, all injected below. Use it:
+- Always reference the user's specific tickers, weights, and P&L rather than generic market commentary.
+- Reason about risk and diversification: cite their beta when discussing market sensitivity, their volatility/Sharpe when \
+discussing risk-adjusted performance, and call out single-name concentration when one position dominates.
+- Prioritize: how does today's macro environment affect THIS user's specific, largest-weighted holdings? Lead with the \
+positions most affected before general context.
+- Treat watchlist names as candidates the user is considering but does not yet own.
+Interpretation guide: beta > 1 means more volatile than the market (amplified moves); a Sharpe below ~1 is weak \
+risk-adjusted return; a single position above ~40% of the book is concentrated. Explain these in plain language.
 
 Keep answers focused and actionable. Use specific examples. If you don't know something, say so. Never give personalized \
 investment advice — always clarify you're providing educational information, not a recommendation to buy or sell."""
@@ -778,6 +967,7 @@ investment advice — always clarify you're providing educational information, n
 
 @app.route("/chat", methods=["POST"])
 @limiter.limit("20 per hour; 50 per day")
+@optional_auth
 def chat() -> tuple:
     """Ski financial Q&A chatbot powered by Claude."""
     data = request.json or {}
@@ -809,7 +999,7 @@ def chat() -> tuple:
     macro_ctx = _get_macro_context()
     if macro_ctx:
         system_parts.append(macro_ctx)
-    portfolio_ctx = _get_portfolio_context()
+    portfolio_ctx = _get_portfolio_context(g.get("user_id"))
     if portfolio_ctx:
         system_parts.append(portfolio_ctx)
     news_ctx = _get_news_context(symbol)

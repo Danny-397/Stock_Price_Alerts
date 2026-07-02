@@ -44,6 +44,13 @@
         <div class="header-right">
 <button class="screener-btn" id="open-heatmap-btn" title="Correlation Heatmap">⊞ <span class="btn-text">HEATMAP</span></button>
             <button class="screener-btn" id="open-screener-btn" title="Stock Screener">⊞ <span class="btn-text">SCREENER</span></button>
+            <div class="auth-area" id="auth-area">
+                <button class="screener-btn auth-signin-btn" id="signin-btn" title="Sign in to save your portfolio">SIGN IN</button>
+                <div class="auth-user" id="auth-user" style="display:none">
+                    <span class="auth-email" id="auth-email"></span>
+                    <button class="auth-logout-btn" id="logout-btn" title="Sign out">Sign out</button>
+                </div>
+            </div>
             <button class="hamburger-btn" id="hamburger-btn" aria-label="Open menu">☰</button>
         </div>
     </header>
@@ -87,7 +94,7 @@
                 <div id="active-alerts-list" class="alerts-list">
                     <div class="feed-empty">No alerts set</div>
                 </div>
-                <div class="panel-footer">
+                <div class="panel-footer" id="alert-footer">
                     <button class="btn-secondary full-width" id="create-alert-btn">+ New Alert</button>
                 </div>
             </div>
@@ -115,7 +122,7 @@
                         <span class="pf-risk-val" id="pf-vol">—</span>
                     </span>
                 </div>
-                <div class="panel-footer">
+                <div class="panel-footer" id="pf-footer">
                     <div class="portfolio-form">
                         <div class="portfolio-form-row">
                             <input type="text"   id="pf-symbol"   class="form-input pf-input" placeholder="Symbol" maxlength="10" />
@@ -257,6 +264,41 @@
                     <input type="number" id="alert-threshold" class="form-input" placeholder="e.g. 200.00" step="0.01" min="0">
                 </div>
                 <button class="btn-primary full-width" id="submit-alert-btn">CREATE ALERT</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== AUTH MODAL ===== -->
+    <div class="modal-overlay" id="auth-modal" style="display:none">
+        <div class="modal">
+            <div class="modal-header">
+                <span class="panel-title" id="auth-title">SIGN IN</span>
+                <button class="btn-icon" id="close-auth-btn">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="auth-intro" id="auth-intro">Sign in to save your portfolio, alerts, and watchlist across devices.</p>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="auth-email-input" class="form-input"
+                           placeholder="you@example.com" autocomplete="email"
+                           spellcheck="false" />
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="auth-password-input" class="form-input"
+                           placeholder="At least 8 characters" autocomplete="current-password" />
+                </div>
+                <div class="auth-error" id="auth-error" style="display:none"></div>
+                <button class="btn-primary full-width" id="auth-submit-btn">SIGN IN</button>
+                <p class="auth-toggle">
+                    <span id="auth-toggle-text">New to Tradeski?</span>
+                    <button type="button" class="auth-toggle-btn" id="auth-toggle-btn">Create an account</button>
+                </p>
+                <p class="auth-legal">
+                    By continuing you agree to our
+                    <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.
+                    Tradeski is an educational tool, not investment advice.
+                </p>
             </div>
         </div>
     </div>

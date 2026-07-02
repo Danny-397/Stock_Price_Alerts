@@ -48,7 +48,7 @@ An AI chatbot powered by Anthropic Claude. What makes Ski different from a gener
 - **NewsAPI** + **VADER** for news headlines and sentiment
 - **SQLite** for portfolio and alert persistence
 
-**Quantitative Indicators:** All ten indicators (RSI, MACD, Bollinger Bands, SMA, EMA, Z-Score, Volatility, ATR, Stochastic, Linear Regression) are implemented from first principles in `tracker/analyzer.py` — no TA-Lib, no pandas. This was a deliberate choice. Implementing Wilder's smoothing method by hand requires understanding *why* it diverges from a simple moving average. Writing the VADER financial lexicon requires reading enough headlines to know what the model gets wrong.
+**Quantitative Indicators:** All ten indicators (RSI, MACD, Bollinger Bands, SMA, EMA, Z-Score, Volatility, ATR, Stochastic, Linear Regression) are written by hand on NumPy arrays in `tracker/analyzer.py` — no TA-Lib, no pandas (NumPy supplies only primitives like mean, std, and least-squares). This was a deliberate choice. Implementing Wilder's smoothing method by hand requires understanding *why* it diverges from a simple moving average. Writing the VADER financial lexicon requires reading enough headlines to know what the model gets wrong.
 
 **Portfolio Risk:** Sharpe ratio, beta, and annualized volatility are computed by fetching one year of daily returns for each holding plus SPY, aligning arrays to the shortest series, weighting returns by current market value, and running the arithmetic directly on NumPy arrays.
 
@@ -80,7 +80,7 @@ An AI chatbot powered by Anthropic Claude. What makes Ski different from a gener
 
 ## Accomplishments We're Proud Of
 
-**Zero external indicator libraries.** Every quantitative signal — RSI, MACD, Bollinger Bands, Z-Score, Volatility, ATR, Stochastic, Linear Regression — is implemented from first principles. Not because it's faster, but because it required genuine understanding of the mathematics.
+**Zero external indicator libraries.** Every quantitative signal — RSI, MACD, Bollinger Bands, Z-Score, Volatility, ATR, Stochastic, Linear Regression — is written by hand on NumPy (no TA-Lib, no pandas). Not because it's faster, but because it required genuine understanding of the mathematics.
 
 **AI grounded in live data.** Ski isn't just a chatbot with a financial system prompt. It has access to the actual macro environment, the user's portfolio with live P&L, and current news sentiment. Most "AI financial assistants" answer in a vacuum. Ski doesn't.
 
@@ -88,7 +88,7 @@ An AI chatbot powered by Anthropic Claude. What makes Ski different from a gener
 
 **Five data pipelines, one interface.** Prices, macro data, news sentiment, portfolio analytics, and AI all talking to each other through a single coherent interface. Each pipeline alone would be a reasonable project. The integration is where the real engineering happened.
 
-**45 passing tests.** Every indicator has correctness tests. The FRED client has mocked HTTP tests. The database has CRUD round-trip tests. The sentiment pipeline has financial lexicon augmentation tests. CI runs all 45 on every push.
+**70 passing tests.** Every indicator has correctness tests — including regression tests for the all-gains RSI boundary and the high/low-based Stochastic. The FRED client has mocked HTTP tests. The database has CRUD round-trip tests. Auth has password-hash, token, and per-user isolation tests. The sentiment pipeline has financial lexicon augmentation tests. CI runs all 70 on every push.
 
 ---
 
@@ -104,7 +104,7 @@ I learned how much a product is shaped by deployment constraints. Render's free 
 
 ## What's Next
 
-**Watchlist sync** — Let users build a persistent watchlist that carries across sessions (currently stored in-memory).
+**Accounts & saved data** — Shipped: optional email/password accounts (PBKDF2-hashed) now persist each user's portfolio, alerts, and watchlist server-side via signed bearer tokens, with every record scoped by `user_id`. Next: surface the persistent watchlist in the dashboard UI and add password reset.
 
 **Options chain data** — Integrate IV, Greeks, and open interest from a free options API alongside the underlying price chart.
 
