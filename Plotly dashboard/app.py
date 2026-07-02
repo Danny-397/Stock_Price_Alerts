@@ -205,6 +205,7 @@ def me() -> tuple:
 def health() -> tuple:
     return jsonify({
         "status": "ok",
+        "db": database.db_backend(),
         "services": {
             "fred":      "configured" if os.environ.get("FRED_API_KEY")      else "missing",
             "news":      "configured" if os.environ.get("NEWS_API_KEY")       else "missing",

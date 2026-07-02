@@ -508,9 +508,17 @@ GitHub Actions runs lint and the full test suite on every push and pull request 
 ### Backend — Render
 
 1. Connect the repo to Render and select `render.yaml` for configuration.
-2. Set all environment variables in the Render dashboard → **Environment** tab.
+2. Set all environment variables in the Render dashboard → **Environment** tab. At minimum set **`SECRET_KEY`** (signs auth tokens) and the API keys; set **`DATABASE_URL`** for persistence (see below).
 3. `render.yaml` configures a gunicorn + gevent WebSocket worker — do not change the worker class.
 4. Render provisions a public HTTPS URL with persistent WebSocket connections.
+
+### Persistence — Postgres (recommended in production)
+
+The app uses SQLite by default, which is perfect for local development. On Render's free tier the SQLite file lives on an **ephemeral disk that is wiped on every redeploy and sleep**, so user accounts and saved portfolios would not survive. To persist them:
+
+1. Create a free Postgres database (e.g. [Neon](https://neon.tech)) and copy its connection string.
+2. Set **`DATABASE_URL`** to that string in the Render dashboard.
+3. Redeploy. `tracker/database.py` detects the `postgres://`/`postgresql://` URL and uses Postgres automatically (tables are created on boot); with no `DATABASE_URL` it transparently falls back to SQLite. `GET /health` reports the active backend as `"db": "postgres"` or `"sqlite"`.
 
 ### Frontend — Vercel
 

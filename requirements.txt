@@ -13,3 +13,4 @@ pytest
 anthropic>=0.50.0
 flask-limiter>=3.5.0
 vaderSentiment
+psycopg2-binary>=2.9.0

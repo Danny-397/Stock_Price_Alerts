@@ -15,6 +15,13 @@ services:
       - key: CHECK_INTERVAL
         value: "60"
       # Secrets — set these in the Render dashboard after connecting the repo
+      # Signs user auth tokens — REQUIRED, or sessions reset on every restart.
+      - key: SECRET_KEY
+        sync: false
+      # Postgres (e.g. Neon) so accounts/portfolios survive redeploys. Without
+      # it the app uses ephemeral SQLite and loses data on each redeploy/sleep.
+      - key: DATABASE_URL
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: FRED_API_KEY
