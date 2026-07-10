@@ -1479,6 +1479,23 @@ body::before {
     color: var(--text-secondary);
 }
 
+/* Proactive portfolio briefing — distinguished from ordinary replies. */
+.ski-message-assistant .ski-bubble.ski-briefing {
+    max-width: 92%;
+    background: rgba(59, 130, 246, 0.06);
+    border-left: 2px solid var(--blue, #60A5FA);
+}
+.ski-briefing-label {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    color: var(--blue, #60A5FA);
+    margin-bottom: 6px;
+}
+.ski-briefing-body {
+    white-space: pre-wrap;
+}
+
 /* Ski "thinking" typing indicator — three dots bouncing in sequence. */
 .ski-typing {
     display: inline-flex;

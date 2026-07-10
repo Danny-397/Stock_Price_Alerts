@@ -1071,6 +1071,98 @@ def chat() -> tuple:
         return jsonify({"error": f"AI service error: {exc}"}), 502
 
 
+_SKI_BRIEFING_PROMPT = """You are Ski, the financial-intelligence assistant built into Tradeski. \
+Generate a short, PROACTIVE briefing on THIS user's portfolio using ONLY the context provided below \
+(their real holdings, position weights, P&L, risk metrics, live macro data, and recent news).
+
+Format rules — follow them exactly:
+- Output 3 to 4 bullets, each starting with "• " and each a single sentence.
+- Most important first: lead with the biggest risk or the biggest mover in THEIR book right now.
+- Every bullet must cite a specific number from the context — a position weight %, beta, Sharpe, \
+annualized volatility, P&L %, or a macro figure (CPI, Fed funds rate, unemployment). No vague filler.
+- After the bullets, add one final line starting with "Watch: " naming the single most relevant thing \
+to keep an eye on next (an upcoming data release, an earnings date, or a technical level).
+- No greeting, no preamble, no headers, no sign-off — the bullets and the Watch line only.
+- Educational only. Never phrase anything as a recommendation to buy or sell."""
+
+
+@app.route("/briefing", methods=["POST"])
+@limiter.limit("30 per hour; 100 per day")
+@require_auth
+def briefing() -> tuple:
+    """Proactive, portfolio-grounded briefing Ski generates for the dashboard.
+
+    Unlike /chat (reactive Q&A), this needs no user question: it pulls the same
+    live context — macro snapshot, the user's holdings + risk metrics, and news
+    for their largest position — and asks Ski to surface what matters right now.
+    Result is cached per user (15 min) so dashboard loads don't burn AI quota.
+    """
+    user_id = g.user_id
+
+    holdings = database.get_portfolio(user_id)
+    if not holdings:
+        return jsonify({"briefing": None, "reason": "no_holdings"})
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return jsonify({"error": "AI service not configured"}), 503
+
+    cache_key = f"briefing:{user_id}"
+    if request.args.get("refresh") != "1":
+        cached = _cache.get(cache_key)
+        if cached:
+            return jsonify({"briefing": cached, "cached": True})
+
+    # Same grounded context Ski uses in chat: macro, portfolio + risk, and news
+    # for the single largest holding (where headline risk hits hardest).
+    system_parts = [_SKI_BRIEFING_PROMPT]
+    now = datetime.datetime.now(datetime.timezone.utc)
+    system_parts.append(f"CURRENT DATE: Today is {now:%A, %B %d, %Y}.")
+
+    macro_ctx = _get_macro_context()
+    if macro_ctx:
+        system_parts.append(macro_ctx)
+
+    portfolio_ctx = _get_portfolio_context(user_id)
+    if portfolio_ctx:
+        system_parts.append(portfolio_ctx)
+
+    enriched = [_enrich_holding(h) for h in holdings]
+    enriched.sort(key=lambda h: h.get("market_value") or 0, reverse=True)
+    top_symbol = enriched[0]["symbol"] if enriched else ""
+    news_ctx = _get_news_context(top_symbol) if top_symbol else ""
+    if news_ctx:
+        system_parts.append(news_ctx)
+
+    system_prompt = "\n\n".join(system_parts)
+    messages = [{"role": "user", "content": "Give me today's briefing on my portfolio."}]
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=512,
+            system=system_prompt,
+            messages=messages,
+        )
+        reply = "".join(
+            getattr(b, "text", "") for b in response.content
+            if getattr(b, "type", None) == "text"
+        ).strip()
+        if not reply:
+            return jsonify({"briefing": None, "reason": "empty"})
+        _cache.set(cache_key, reply, ttl=900)
+        return jsonify({"briefing": reply, "cached": False})
+    except anthropic.RateLimitError:
+        return jsonify({"error": "Ski is at capacity — hourly AI quota reached."}), 429
+    except anthropic.APIStatusError as exc:
+        if exc.status_code == 529:
+            return jsonify({"error": "Anthropic API is overloaded right now."}), 503
+        return jsonify({"error": f"AI service error ({exc.status_code})"}), 502
+    except Exception as exc:
+        return jsonify({"error": f"AI service error: {exc}"}), 502
+
+
 # ─────────────────────────────────────────────────────────────
 # WebSocket Broadcasts
 # ─────────────────────────────────────────────────────────────

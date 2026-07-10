@@ -1324,6 +1324,7 @@ function renderPortfolio(data) {
 
     showSkiStarters(true);
     loadPortfolioRisk();
+    loadSkiBriefing();
 
     list.innerHTML = "";
     for (const h of holdings) {
@@ -1432,6 +1433,7 @@ const skiState = {
     open: false,
     history: [],   // [{role, content}]
     busy: false,
+    briefingLoaded: false,   // proactive briefing fetched once per session
 };
 
 function initSki() {
@@ -1517,6 +1519,55 @@ function buildChartContext() {
         zscore:          last(d.zscore),
         volatility:      last(d.volatility),
     };
+}
+
+// Proactive briefing — Ski greets a signed-in user with a portfolio-aware
+// rundown the moment their holdings load, instead of waiting to be asked.
+async function loadSkiBriefing() {
+    if (skiState.briefingLoaded || !getToken()) return;
+    skiState.briefingLoaded = true;   // guard against portfolio-refresh re-fires
+    try {
+        const res = await fetch(`${CFG.API}/briefing`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+        });
+        if (!res.ok) { skiState.briefingLoaded = false; return; }
+        const data = await res.json();
+        if (!data.briefing) return;   // no holdings / not configured — stay quiet
+        renderSkiBriefing(data.briefing);
+    } catch {
+        skiState.briefingLoaded = false;   // backend asleep — retry next load
+    }
+}
+
+function renderSkiBriefing(text) {
+    const container = document.getElementById("ski-messages");
+    if (!container) return;
+
+    const wrap = document.createElement("div");
+    wrap.className = "ski-message ski-message-assistant";
+    const bubble = document.createElement("div");
+    bubble.className = "ski-bubble ski-briefing";
+
+    const label = document.createElement("div");
+    label.className = "ski-briefing-label";
+    label.textContent = "YOUR BRIEFING";
+    const body = document.createElement("div");
+    body.className = "ski-briefing-body";
+    body.textContent = text;
+
+    bubble.appendChild(label);
+    bubble.appendChild(body);
+    wrap.appendChild(bubble);
+    container.appendChild(wrap);
+    container.scrollTop = container.scrollHeight;
+
+    // Give Ski follow-up context, and nudge the closed FAB so the user notices.
+    skiState.history.push({ role: "assistant", content: text });
+    if (!skiState.open) {
+        const badge = document.getElementById("ski-badge");
+        if (badge) badge.style.display = "";
+    }
 }
 
 async function skiSend() {

@@ -9,11 +9,17 @@ Live charts · Federal Reserve macro data · AI-powered assistant · Portfolio r
 [![CI](https://github.com/Danny-397/Tradeski/actions/workflows/ci.yml/badge.svg)](https://github.com/Danny-397/Tradeski/actions/workflows/ci.yml)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-70%20passing-22c55e.svg)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-71%20passing-22c55e.svg)](#running-tests)
 [![Deploy: Render](https://img.shields.io/badge/backend-Render-46E3B7?logo=render&logoColor=white)](https://render.com)
 [![Deploy: Vercel](https://img.shields.io/badge/frontend-Vercel-000000?logo=vercel&logoColor=white)](https://vercel.com)
 
 ### [→ tradeski.dev](https://tradeski.dev)
+
+<br>
+
+![Tradeski dashboard — live candlestick chart with Bollinger Bands and moving averages, a Federal Reserve macro ribbon, and a real-time indicator panel](docs/screenshots/dashboard.png)
+
+<sub>Live dashboard: candlesticks with hand-computed Bollinger Bands, SMA/EMA overlays, a Federal Reserve macro ribbon, and RSI / MACD / Z-score readouts — Ski (bottom-right) reads all of it.</sub>
 
 </div>
 
@@ -28,8 +34,16 @@ Every quantitative indicator is hand-written directly on NumPy arrays — no TA-
 | **Backend** | Python 3.12 · Flask · Flask-SocketIO · gevent |
 | **Frontend** | Vanilla JS · Plotly.js · Socket.IO |
 | **Data** | yfinance · FRED API · NewsAPI · Anthropic Claude |
-| **Tests** | 70 tests across 10 files — CI on every push |
+| **Tests** | 71 tests across 10 files — CI on every push |
 | **Deployment** | Render (backend) · Vercel (frontend) · tradeski.dev |
+
+<div align="center">
+
+![Tradeski landing page — "Ask Ski. Own your portfolio." with a live price strip](docs/screenshots/landing.png)
+
+<sub>The landing page at tradeski.dev, with a live price strip streamed from the backend.</sub>
+
+</div>
 
 ---
 
@@ -134,7 +148,7 @@ Tradeski/
 │   └── main.py                # Real-time tracker entry point
 │
 ├── Plotly dashboard/          # Flask + Socket.IO application server
-│   ├── app.py                 # REST API, WebSocket emitters, Ski /chat endpoint
+│   ├── app.py                 # REST API, WebSocket emitters, Ski /chat + /briefing endpoints
 │   └── cache.py               # TTL in-memory cache (SimpleCache)
 │
 ├── frontend/                  # Static UI — served via Vercel
@@ -146,7 +160,7 @@ Tradeski/
 │   ├── styles.css             # Terminal dark theme — CSS custom properties, mobile-responsive
 │   └── dashboard.js           # WebSocket, Plotly, Ski, screener, health indicator
 │
-├── tests/                     # pytest suite — 70 tests across 10 files
+├── tests/                     # pytest suite — 71 tests across 10 files
 │   ├── test_analyzer.py       # Indicator shape, value range, arithmetic correctness
 │   ├── test_analyzer_basic.py # Edge cases: empty input, flat series, single-element
 │   ├── test_database.py       # SQLite round-trips for prices, alerts, portfolio
@@ -215,7 +229,7 @@ Tradeski/
 | Language | Python 3.12 |
 | Web Framework | Flask + Flask-SocketIO |
 | Real-Time Transport | WebSocket (Socket.IO / gevent) |
-| Database | SQLite (`sqlite3` stdlib) |
+| Database | Postgres in production (`psycopg2`) · SQLite (`sqlite3` stdlib) for local dev |
 | Auth | PBKDF2 password hashing (werkzeug) · signed bearer tokens (itsdangerous) |
 | Market Data | yfinance (Yahoo Finance) |
 | Macro Data | FRED API (St. Louis Federal Reserve) |
@@ -229,7 +243,7 @@ Tradeski/
 | Fonts | Space Grotesk · JetBrains Mono |
 | CI/CD | GitHub Actions |
 | Linting | Flake8 |
-| Testing | pytest (70 tests) |
+| Testing | pytest (71 tests) |
 | Backend Hosting | Render |
 | Frontend Hosting | Vercel |
 
@@ -266,12 +280,14 @@ Ski is powered by **Anthropic Claude Haiku 4.5** and grounded in three live data
 |:---|:---|:---|
 | System prompt | Static | Financial knowledge: equities, macro, sector rotation, indicator signals |
 | Macro context | FRED API (cached 1h) | CPI, Fed Funds Rate, GDP, unemployment, yield curve, credit spreads |
-| Portfolio context | SQLite (live) | Per-holding weight, live P&L, portfolio risk (Sharpe/beta/vol), concentration flag, watchlist |
+| Portfolio context | Postgres/SQLite (live) | Per-holding weight, live P&L, portfolio risk (Sharpe/beta/vol), concentration flag, watchlist |
 | News context | NewsAPI + VADER (cached 30m) | Recent headlines for the viewed symbol with sentiment scores |
 
 Ski can answer "Is now a good time to add to my NVDA position?" with awareness of the user's actual cost basis, the current macro environment, and recent news sentiment — not boilerplate.
 
-**Rate limiting:** 20 messages/hour · 50 messages/day per IP via Flask-Limiter.
+**Proactive briefing.** Ski doesn't wait to be asked. The moment a signed-in user's holdings load, the dashboard calls `POST /briefing`, which assembles the same live context (macro snapshot + the user's positions, weights, and risk metrics + news for their largest holding) and asks Claude to surface what matters *right now* — 3–4 number-backed bullets plus a "Watch:" line flagging the next thing to keep an eye on (e.g. *"NVDA is 55% of your book with beta 1.4 — concentration risk"*). The result is cached per user for 15 minutes so dashboard loads stay cheap. This turns the assistant from a reactive chat box into the product's spine: portfolio-aware intelligence that meets the user at the door.
+
+**Rate limiting:** chat 20 messages/hour · 50/day; briefing 30/hour · 100/day per IP via Flask-Limiter.
 
 ---
 
@@ -421,6 +437,9 @@ List, create, and delete rule-based price and indicator alerts. **Requires authe
 Ski chatbot. Body: `{ "message": "...", "history": [...], "symbol": "AAPL" }`.
 Injects live macro, portfolio, and news context. Requires `ANTHROPIC_API_KEY`.
 
+### `POST /briefing`
+Proactive portfolio briefing — no question needed. Assembles the user's live macro, portfolio/risk, and top-holding news context and returns `{ "briefing": "…", "cached": bool }`. **Requires authentication**; returns `{ "briefing": null, "reason": "no_holdings" }` for an empty portfolio. Result cached per user for 15 minutes (`?refresh=1` bypasses). Requires `ANTHROPIC_API_KEY`.
+
 ### WebSocket Events
 
 | Event | Direction | Payload |
@@ -481,7 +500,7 @@ python -m http.server 8080 --directory frontend
 python -m pytest -v
 ```
 
-70 tests across 10 files:
+71 tests across 10 files:
 
 | File | What it covers |
 |:---|:---|
@@ -512,9 +531,9 @@ GitHub Actions runs lint and the full test suite on every push and pull request 
 3. `render.yaml` configures a gunicorn + gevent WebSocket worker — do not change the worker class.
 4. Render provisions a public HTTPS URL with persistent WebSocket connections.
 
-### Persistence — Postgres (recommended in production)
+### Persistence — Postgres in production
 
-The app uses SQLite by default, which is perfect for local development. On Render's free tier the SQLite file lives on an **ephemeral disk that is wiped on every redeploy and sleep**, so user accounts and saved portfolios would not survive. To persist them:
+**The live deployment runs on Postgres, so accounts, portfolios, alerts, and watchlists persist across redeploys, sleeps, and devices** — `GET /health` on the production backend returns `"db": "postgres"`. SQLite is used only as the local-development default: it needs zero setup, but on Render's free tier the SQLite file lives on an **ephemeral disk that is wiped on every redeploy and sleep**, so any real deployment should point at Postgres. To wire it up:
 
 1. Create a free Postgres database (e.g. [Neon](https://neon.tech)) and copy its connection string.
 2. Set **`DATABASE_URL`** to that string in the Render dashboard.

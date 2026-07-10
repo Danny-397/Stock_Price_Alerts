@@ -34,7 +34,7 @@ Add your holdings by ticker, share count, and average cost. See unrealized P&L i
 A 90-day pairwise return correlation matrix across 11 major symbols, visualized as a Plotly heatmap with a diverging red-to-green colorscale. Useful for spotting diversification gaps and sector clustering at a glance.
 
 **Ski — AI Financial Assistant**  
-An AI chatbot powered by Anthropic Claude. What makes Ski different from a generic chatbot is context injection: every request automatically includes the current FRED macro snapshot, the user's portfolio (with live P&L), and recent news sentiment for the viewed symbol. Ski answers questions with awareness of what the user is actually looking at.
+An AI chatbot powered by Anthropic Claude. What makes Ski different from a generic chatbot is context injection: every request automatically includes the current FRED macro snapshot, the user's portfolio (with live P&L), and recent news sentiment for the viewed symbol. Ski answers questions with awareness of what the user is actually looking at. And Ski doesn't wait to be asked — the moment a signed-in user's holdings load, it delivers a **proactive briefing**: 3–4 number-backed bullets on the biggest risks and movers in *their* book right now, plus a "Watch:" line flagging the next thing to keep an eye on. That turns the assistant from a chat box into the spine of the product.
 
 ---
 
@@ -88,7 +88,7 @@ An AI chatbot powered by Anthropic Claude. What makes Ski different from a gener
 
 **Five data pipelines, one interface.** Prices, macro data, news sentiment, portfolio analytics, and AI all talking to each other through a single coherent interface. Each pipeline alone would be a reasonable project. The integration is where the real engineering happened.
 
-**70 passing tests.** Every indicator has correctness tests — including regression tests for the all-gains RSI boundary and the high/low-based Stochastic. The FRED client has mocked HTTP tests. The database has CRUD round-trip tests. Auth has password-hash, token, and per-user isolation tests. The sentiment pipeline has financial lexicon augmentation tests. CI runs all 70 on every push.
+**71 passing tests.** Every indicator has correctness tests — including regression tests for the all-gains RSI boundary and the high/low-based Stochastic. The FRED client has mocked HTTP tests. The database has CRUD round-trip tests. Auth has password-hash, token, and per-user isolation tests. The sentiment pipeline has financial lexicon augmentation tests. CI runs all 71 on every push.
 
 ---
 
