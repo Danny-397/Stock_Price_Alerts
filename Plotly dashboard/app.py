@@ -1219,7 +1219,6 @@ def _background_tracker() -> None:
                             "price": price,
                             "timestamp": time.time(),
                         },
-                        namespace="/stream",
                     )
             except Exception:
                 pass
