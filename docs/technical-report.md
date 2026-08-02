@@ -21,7 +21,7 @@ This report describes the architecture as built, the decisions worth defending, 
 | Backend | Python 3.12, Flask + Flask-SocketIO on gevent, 25 HTTP endpoints |
 | Frontend | Static HTML/CSS/JS, 2,299 lines, Plotly.js, no framework and no build step |
 | Indicators | 10, hand-implemented on NumPy arrays — no TA-Lib, no pandas |
-| Tests | 71, across 10 files, run in GitHub Actions with flake8 |
+| Tests | 75, across 11 files, run in GitHub Actions with flake8 |
 | Deployment | Backend on Render (gunicorn + gevent), frontend static, Postgres |
 
 ---
@@ -194,7 +194,7 @@ allocation. The model is doing language work; the application is doing the retri
 
 ## 8. Testing
 
-71 tests across 10 files run on every push through GitHub Actions, alongside flake8 linting.
+75 tests across 11 files run on every push through GitHub Actions, alongside flake8 linting.
 Coverage is weighted toward the code where correctness is checkable rather than the code
 that is merely tedious: indicator boundary conditions, authentication and token handling,
 database access and user scoping, the FRED and news clients against recorded payloads, the
@@ -202,6 +202,22 @@ screener, and portfolio math.
 
 Network-dependent modules are tested against fixtures, not live APIs. A test suite that
 fails because a third-party service is down teaches you nothing and trains you to ignore it.
+
+That style of testing has a blind spot, and it cost this project its headline feature. The
+background tracker emitted `price_update` on the `/stream` namespace while the browser
+connected to the default namespace and listened there. Each half was correct read on its
+own; the socket connected, the UI reported a healthy connection, and no tick ever arrived —
+prices moved only on the 60-second polling refresh. Every test passed the entire time,
+because every test exercised a pure function in isolation. A contract *between* two
+components is invisible to that.
+
+`tests/test_stream_contract.py` now parses `app.py` and `dashboard.js` and asserts that
+every event the client subscribes to is emitted on the namespace the client is actually on.
+Worth recording that the first version of that test also passed with the bug present: it
+compared the *set* of namespaces each event was emitted on, and a dead code path that
+emitted `price_update` correctly on the default namespace masked the live one that did not.
+Checking each emit site individually, rather than unioning them per event, is the whole
+difference between a test that catches this and a test that looks like it does.
 
 ---
 
