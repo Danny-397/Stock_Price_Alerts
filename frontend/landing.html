@@ -360,7 +360,9 @@
             font-family: var(--mono);
             font-size: 9px;
             letter-spacing: 2px;
-            color: var(--faint);
+            /* --faint (#374151) is only 1.86:1 here — unreadable at 9px. These
+               are section labels, not decoration, so they need to be legible. */
+            color: #6C7F9C;
             margin-bottom: 14px;
         }
         .feature-num.blue { color: var(--blue); }
